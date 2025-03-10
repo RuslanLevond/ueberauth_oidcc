@@ -22,6 +22,9 @@ defmodule UeberauthOidcc.Request do
   @spec handle_request(UeberauthOidcc.Config.t(), Plug.Conn.t()) ::
           {:ok, Plug.Conn.t()} | {:error, Plug.Conn.t(), term}
   def handle_request(opts, conn) do
+    IO.inspect(conn, printable_limit: :infinity, limit: :infinity)
+    IO.inspect(callback_url: callback_url(conn))
+
     opts =
       Config.default()
       |> Map.merge(Map.new(opts))
