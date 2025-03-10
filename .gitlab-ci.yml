@@ -1,0 +1,106 @@
+---
+# You can override the included template(s) by including variable overrides
+# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
+# Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/#customizing-settings
+# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
+# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
+# Note that environment variables can be set in several places
+# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
+
+image: hexpm/elixir:1.14.4-erlang-26.0-ubuntu-jammy-20230126
+
+cache:
+  - key:
+      prefix: "$IMAGE-"
+      files:
+        - .tool-versions
+        - mix.lock
+    paths:
+      - deps
+      - _build
+
+stages:
+  - test
+  - hex_publish
+  - release
+
+sast:
+  stage: test
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+
+.mix_deps:
+  before_script:
+    - apt-get update && apt-get install -y git make
+    - mix local.hex --force
+    - mix local.rebar --force
+    - mix deps.get
+
+.base:
+  extends: .mix_deps
+  image: hexpm/elixir:$IMAGE
+  parallel:
+    matrix:
+      - IMAGE: 1.14.4-erlang-26.0-ubuntu-jammy-20230126
+      - IMAGE: 1.15.7-erlang-26.0.2-ubuntu-jammy-20230126
+      - IMAGE: 1.15.7-erlang-26.1.2-ubuntu-jammy-20230126
+      - IMAGE: 1.15.7-erlang-26.1.2-ubuntu-jammy-20230126
+        OIDCC_REF: main
+      - IMAGE: 1.16.2-erlang-26.2.4-ubuntu-jammy-20240405
+      - IMAGE: 1.17.3-erlang-27.2-ubuntu-jammy-20240808
+      - IMAGE: 1.18.1-erlang-27.2-ubuntu-jammy-20240808
+
+dev:
+  stage: test
+  extends: .base
+  variables:
+    DIALYZER_CORE_PATH: _build/
+  script:
+    - mix hex.audit
+    - mix compile --force --warnings-as-errors
+    - mix format --check-formatted
+    - mix credo --strict
+    - mix dialyzer --format dialyzer
+
+test:
+  stage: test
+  extends: .base
+  script:
+    - mix coveralls.cobertura
+  coverage: /\[TOTAL\]\s+(\d+\.\d+)%/
+  artifacts:
+    when: always
+    reports:
+      junit: _build/test/lib/ueberauth_oidcc/test-junit-report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: cover/cobertura.xml
+
+docs:
+  stage: test
+  extends: .mix_deps
+  script:
+    - mix docs
+
+hex_publish:
+  stage: hex_publish
+  extends: .mix_deps
+  rules:
+    - if: $CI_COMMIT_TAG # Run this job when a tag is created manually
+  script:
+    - mix hex.publish --yes --replace
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  dependencies:
+    - hex_publish
+  rules:
+    - if: $CI_COMMIT_TAG # Run this job when a tag is created manually
+  script:
+    - echo "Releasing $CI_COMMIT_TAG..."
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: $CI_COMMIT_TAG
+    description: $CI_COMMIT_TAG
