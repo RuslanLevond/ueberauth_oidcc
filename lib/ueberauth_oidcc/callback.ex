@@ -215,6 +215,7 @@ defmodule UeberauthOidcc.Callback do
   end
 
   defp validate_redirect_uri(uri, conn) do
+    IO.inspect(callback_uri: uri, plug_conn_request_url: Plug.Conn.request_url(%{conn | query_string: ""}))
     # generate the current URL but without the query string parameters
     case Plug.Conn.request_url(%{conn | query_string: ""}) do
       ^uri ->
